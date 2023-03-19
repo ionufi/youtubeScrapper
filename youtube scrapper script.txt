@@ -1,0 +1,108 @@
+function writeInSheet() {
+  var youtubeScrapperSheet = SpreadsheetApp.getActiveSpreadsheet();
+  var keyWord = youtubeScrapperSheet.getRange('B1').getValue();
+  var searchedLastTime = youtubeScrapperSheet.getRange('L2').getValue();
+  var titleFilter = youtubeScrapperSheet.getRange('L1').getValue().toLowerCase();
+  var publishedBefore = youtubeScrapperSheet.getRange('B3').getValue() ? JSON.stringify(youtubeScrapperSheet.getRange('B3').getValue()) : "";
+  var publishedAfter = youtubeScrapperSheet.getRange('B2').getValue() ? JSON.stringify(youtubeScrapperSheet.getRange('B2').getValue()) : "";
+  var scrapConfig = {
+    'maxResults' : 50, // Acceptable values are 1 to 50, inclusive. The default value is 5.
+    'q' : keyWord,
+    'type' : 'video'
+  }
+
+  var nextPage = youtubeScrapperSheet.getRange('F1').getValue() ? youtubeScrapperSheet.getRange('F1').getValue().toLowerCase() : "";
+  var pageTokenCell = youtubeScrapperSheet.getRange('F2').getValue() ? youtubeScrapperSheet.getRange('F2').getValue() : "";
+
+  if (keyWord !== searchedLastTime) {
+    pageTokenCell = '';
+  }
+
+  if(nextPage == 'yes' && pageTokenCell !== '') {
+    scrapConfig.pageToken = pageTokenCell;
+  }
+  
+  // Convert the date to youtube API format: 2023-02-26T22:00:00Z
+  // and add the pulishedBefore/publishedAfter parameter to scrapConfig
+  if (publishedBefore !== "") {
+    publishedBefore = publishedBefore.substring(1).split('.')[0]+"Z";
+    scrapConfig.publishedBefore = publishedBefore;
+  }
+
+  if (publishedAfter !== "") {
+    publishedAfter = publishedAfter.substring(1).split('.')[0]+"Z";
+    scrapConfig.publishedAfter = publishedAfter;
+  }
+
+  var scrap = YouTube.Search.list('snippet', scrapConfig); // API call
+
+  if (scrap && scrap.nextPageToken) {
+    youtubeScrapperSheet.getRange('F2').setValue(scrap.nextPageToken);
+  }
+
+  Logger.log('Youtube API configs sent: ' + scrapConfig);
+
+  var responseTotalResults = scrap.pageInfo.totalResults;
+  var resultsPerPage = scrap.pageInfo.resultsPerPage;
+  var remainedPages = (responseTotalResults / resultsPerPage).toFixed(0);
+  var items = scrap.items;
+  var totalPrintedResults = 0;
+  var nextPageResultsPosition = youtubeScrapperSheet.getRange('F3').getValue();
+  var nextPageCorrection =  nextPageResultsPosition !== '' ? nextPageResultsPosition : 0;
+
+  if (nextPage == 'yes') {
+    if (keyWord !== searchedLastTime) {
+      youtubeScrapperSheet.getRange('F3').setValue('0');
+      nextPageCorrection = 0;
+    } else {
+      nextPageCorrection = nextPageCorrection;
+    }
+  } else {
+    nextPageCorrection = 0;
+    if (keyWord !== searchedLastTime) {
+        youtubeScrapperSheet.getRange('F3').setValue('0');
+    } else {
+      youtubeScrapperSheet.getRange('F3').setValue(nextPageCorrection);
+    }
+  }
+
+  function printVideos() {
+    var filterCorrection = 0;
+
+    for (i = 0; i < items.length; i++){
+      var videoLink = 'https://www.youtube.com/watch?v=' + items[i].id.videoId;
+      var videoName = items[i].snippet.title;
+
+      if (titleFilter == 'yes') {
+        if (videoName.toLowerCase().indexOf(keyWord.toLocaleLowerCase()) > -1){
+          var titleCell = 'A' + (6 + i - filterCorrection + nextPageCorrection);
+          var linkCell = 'B' + (6 + i - filterCorrection + nextPageCorrection);
+          youtubeScrapperSheet.getRange(titleCell).setValue(videoName);
+          youtubeScrapperSheet.getRange(linkCell).setValue(videoLink);
+          totalPrintedResults++;
+        } else {
+          filterCorrection++;
+        }
+      } else {
+        var titleCell = 'A' + (6 + i + nextPageCorrection);
+        var linkCell = 'B' + (6 + i + nextPageCorrection);
+        youtubeScrapperSheet.getRange(titleCell).setValue(videoName);
+        youtubeScrapperSheet.getRange(linkCell).setValue(videoLink);
+        totalPrintedResults++;
+      }
+    }
+
+    if (nextPage == 'yes') {
+      youtubeScrapperSheet.getRange('F3').setValue(nextPageCorrection + totalPrintedResults);
+    }
+  }
+
+  // Copy keyword to last time searched cell
+  youtubeScrapperSheet.getRange('L2').setValue(keyWord);
+
+  printVideos();
+
+  Logger.log('Initial results number ' + responseTotalResults);
+  Logger.log(resultsPerPage + ' results / page):' + remainedPages + ' pages');
+  Logger.log('Total printed results: ' + totalPrintedResults);
+}
